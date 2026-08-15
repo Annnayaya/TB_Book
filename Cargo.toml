@@ -1,0 +1,23 @@
+[package]
+name = "brick_reader"
+version = "0.1.0"
+edition = "2021"
+authors = ["Antigravity"]
+description = "Modern 4:3 E-Reader & Comic Viewer tailored for Trimui Brick Handheld"
+
+[dependencies]
+minifb = "0.27"
+ab_glyph = "0.2"
+image = { version = "0.24", default-features = false, features = ["png", "jpeg", "webp", "bmp"] }
+zip = { version = "2.1", default-features = false, features = ["deflate"] }
+encoding_rs = "0.8"
+chardetng = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
