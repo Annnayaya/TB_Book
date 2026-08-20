@@ -4,7 +4,7 @@ param(
 )
 
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "  BrickReader - Trimui Brick 掌机安装包打包工具" -ForegroundColor Cyan
+Write-Host "  tbb1.3.1 - Trimui Brick 掌机安装包打包工具" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
 $packageDir = "package\Apps\BrickReader"
@@ -36,5 +36,5 @@ if ($SdCardDrive -ne "") {
     Write-Host "`n[3/3] 安装指引：" -ForegroundColor Yellow
     Write-Host "  1. 编译 Linux ARM64 二进制放入 $packageDir\bin\brick_reader"
     Write-Host "  2. 将整个 $packageDir 文件夹复制到 TF 卡的 Apps\ 目录下"
-    Write-Host "  3. 插回掌机，在【应用 / Apps】标签页点击【砖读 BrickReader】启动！"
+    Write-Host "  3. 插回掌机，在【应用 / Apps】标签页点击【tbb1.3.1】启动！"
 }

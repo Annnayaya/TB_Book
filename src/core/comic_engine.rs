@@ -307,3 +307,19 @@ fn auto_crop_margins(img: &DynamicImage) -> DynamicImage {
     }
     img.crop_imm(0, 0, w, h)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ComicArchive;
+
+    #[test]
+    fn opens_and_decodes_packaged_sample_cbz() {
+        let sample = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("books")
+            .join("灌篮高手_样例.cbz");
+        let comic = ComicArchive::open(sample).expect("sample CBZ should open");
+
+        assert!(!comic.page_entries.is_empty());
+        assert!(comic.current_image.is_some());
+    }
+}

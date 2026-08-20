@@ -1,6 +1,9 @@
 {
-  "label": "砖读 BrickReader",
+  "package": "com.brickreader.app",
+  "label": "tbb1.3.1",
+  "label.ch.lang": "tbb1.3.1",
   "icon": "icon.png",
+  "iconsel": "icon.png",
   "launch": "launch.sh",
   "description": "专为 Trimui Brick 4:3 屏幕量身定制的现代化高颜值电子书与漫画阅读器"
 }

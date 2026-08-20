@@ -29,7 +29,11 @@ mod tests {
     }
 
     fn detect_type(path: &Path) -> &'static str {
-        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase();
         match ext.as_str() {
             "txt" | "md" | "epub" => "Text",
             "cbz" | "zip" => "Comic",

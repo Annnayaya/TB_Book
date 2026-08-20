@@ -1,5 +1,6 @@
 use crate::config::AppSettings;
 use crate::core::comic_engine::ReadingDirection;
+use crate::platform::battery::BatteryStatus;
 use crate::ui::canvas::{Canvas, SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::ui::theme::ThemePalette;
 use crate::ui::widgets::Widgets;
@@ -69,18 +70,33 @@ impl SettingsView {
         }
     }
 
-    pub fn render(&self, canvas: &mut Canvas, settings: &AppSettings, palette: &ThemePalette) {
+    pub fn render(
+        &self,
+        canvas: &mut Canvas,
+        settings: &AppSettings,
+        palette: &ThemePalette,
+        battery: Option<BatteryStatus>,
+    ) {
         canvas.clear(palette.background);
 
         match self.tab {
-            SettingsTab::General => self.render_general_settings(canvas, settings, palette),
-            SettingsTab::FolderPicker => self.render_folder_picker(canvas, palette),
+            SettingsTab::General => {
+                self.render_general_settings(canvas, settings, palette, battery)
+            }
+            SettingsTab::FolderPicker => self.render_folder_picker(canvas, palette, battery),
         }
     }
 
-    fn render_general_settings(&self, canvas: &mut Canvas, settings: &AppSettings, palette: &ThemePalette) {
+    fn render_general_settings(
+        &self,
+        canvas: &mut Canvas,
+        settings: &AppSettings,
+        palette: &ThemePalette,
+        battery: Option<BatteryStatus>,
+    ) {
         // Top Header
-        Widgets::draw_header(canvas, "⚙️ 设置中心 (Settings)", palette);
+        let header = format!("⚙️ 设置中心 · {}", crate::APP_DISPLAY_NAME);
+        Widgets::draw_header(canvas, &header, palette, battery);
 
         // Center card container
         let card_w = 860;
@@ -94,10 +110,22 @@ impl SettingsView {
 
         // Setting Items List
         let items: [(&str, String); 7] = [
-            ("📂 书库目录 (Library Path)", settings.library_path.to_string_lossy().to_string()),
-            ("🔤 默认字体大小 (Font Size)", format!("<  {:.0} px  >", settings.font_size)),
-            ("📏 默认行距 (Line Spacing)", format!("<  {:.1} x  >", settings.line_spacing)),
-            ("🎨 界面主题 (Theme)", format!("<  {}  >", settings.theme.name())),
+            (
+                "📂 书库目录 (Library Path)",
+                settings.library_path.to_string_lossy().to_string(),
+            ),
+            (
+                "🔤 默认字体大小 (Font Size)",
+                format!("<  {:.0} px  >", settings.font_size),
+            ),
+            (
+                "📏 默认行距 (Line Spacing)",
+                format!("<  {:.1} x  >", settings.line_spacing),
+            ),
+            (
+                "🎨 界面主题 (Theme)",
+                format!("<  {}  >", settings.theme.name()),
+            ),
             (
                 "📖 漫画阅读顺序 (Manga Order)",
                 match settings.default_reading_direction {
@@ -107,9 +135,16 @@ impl SettingsView {
             ),
             (
                 "💡 RGB 氛围灯 (RGB Light)",
-                if settings.rgb_led_enabled { "<  开启 (On)  >".to_string() } else { "<  关闭 (Off)  >".to_string() },
+                if settings.rgb_led_enabled {
+                    "<  开启 (On)  >".to_string()
+                } else {
+                    "<  关闭 (Off)  >".to_string()
+                },
             ),
-            ("💾 保存并返回书架 (Save & Exit)", "按 (A) 或 (B) 返回".to_string()),
+            (
+                "💾 保存并返回书架 (Save & Exit)",
+                "按 (A) 或 (B) 返回".to_string(),
+            ),
         ];
 
         let item_h = 68;
@@ -125,23 +160,41 @@ impl SettingsView {
                 canvas.draw_rounded_rect(ix, iy, iw, item_h - 10, 10, palette.card_selected_bg);
                 canvas.draw_rounded_border(ix, iy, iw, item_h - 10, 10, palette.accent, 2);
             } else {
-                canvas.draw_rounded_rect_alpha(ix, iy, iw, item_h - 10, 10, palette.background, 120);
+                canvas.draw_rounded_rect_alpha(
+                    ix,
+                    iy,
+                    iw,
+                    item_h - 10,
+                    10,
+                    palette.background,
+                    120,
+                );
                 canvas.draw_rounded_border(ix, iy, iw, item_h - 10, 10, palette.border, 1);
             }
 
             // Left Label
-            let label_col = if is_selected { palette.accent } else { palette.text_primary };
+            let label_col = if is_selected {
+                palette.accent
+            } else {
+                palette.text_primary
+            };
             canvas.draw_text(label, ix + 20, iy + 16, 22.0, label_col);
 
             // Right Value
-            let val_w = canvas.measure_text_width(val_str, 20.0);
+            let fitted_value = Widgets::fit_text(canvas, val_str, 350, 20.0);
+            let val_w = canvas.measure_text_width(&fitted_value, 20.0);
             let val_x = ix + iw - val_w - 20;
-            let val_col = if is_selected { palette.accent } else { palette.text_secondary };
-            canvas.draw_text(val_str, val_x, iy + 16, 20.0, val_col);
+            let val_col = if is_selected {
+                palette.accent
+            } else {
+                palette.text_secondary
+            };
+            canvas.draw_text(&fitted_value, val_x, iy + 16, 20.0, val_col);
         }
 
         // Bottom Navigation Instructions
-        let tip_text = "(十字键 上/下) 切换选项    (左/右) 调整数值    (A) 确认/浏览目录    (B) 保存返回";
+        let tip_text =
+            "(十字键 上/下) 切换选项    (左/右) 调整数值    (A) 确认/浏览目录    (B) 保存返回";
         let tw = canvas.measure_text_width(tip_text, 18.0);
         canvas.draw_text(
             tip_text,
@@ -152,10 +205,15 @@ impl SettingsView {
         );
     }
 
-    fn render_folder_picker(&self, canvas: &mut Canvas, palette: &ThemePalette) {
+    fn render_folder_picker(
+        &self,
+        canvas: &mut Canvas,
+        palette: &ThemePalette,
+        battery: Option<BatteryStatus>,
+    ) {
         // Header
         let cur_path_str = format!("选择书库目录: {}", self.browse_path.to_string_lossy());
-        Widgets::draw_header(canvas, &cur_path_str, palette);
+        Widgets::draw_header(canvas, &cur_path_str, palette, battery);
 
         // Center card container
         let card_w = 900;
@@ -168,9 +226,23 @@ impl SettingsView {
         canvas.draw_rounded_border(card_x, card_y, card_w, card_h, 16, palette.accent, 2);
 
         // Current Directory Badge
-        canvas.draw_rounded_rect(card_x + 24, card_y + 16, card_w - 48, 40, 8, palette.background);
+        canvas.draw_rounded_rect(
+            card_x + 24,
+            card_y + 16,
+            card_w - 48,
+            40,
+            8,
+            palette.background,
+        );
         let path_label = format!("📁 当前浏览路径: {}", self.browse_path.display());
-        canvas.draw_text(&path_label, card_x + 36, card_y + 24, 20.0, palette.text_primary);
+        let path_label = Widgets::fit_text(canvas, &path_label, card_w - 80, 20.0);
+        canvas.draw_text(
+            &path_label,
+            card_x + 36,
+            card_y + 24,
+            20.0,
+            palette.text_primary,
+        );
 
         // Folder list (Max 7 visible at once)
         let visible_count = 7;
@@ -187,7 +259,13 @@ impl SettingsView {
         if self.folder_entries.is_empty() {
             let msg = "(当前目录下没有其他子文件夹)";
             let mw = canvas.measure_text_width(msg, 22.0);
-            canvas.draw_text(msg, (SCREEN_WIDTH as i32 - mw) / 2, card_y + 240, 22.0, palette.text_muted);
+            canvas.draw_text(
+                msg,
+                (SCREEN_WIDTH as i32 - mw) / 2,
+                card_y + 240,
+                22.0,
+                palette.text_muted,
+            );
         } else {
             for (display_idx, idx) in (start_idx..end_idx).enumerate() {
                 let iy = item_start_y + (display_idx as i32) * item_h;
@@ -207,7 +285,10 @@ impl SettingsView {
                 } else {
                     format!(
                         "📁 {}",
-                        entry.file_name().and_then(|s| s.to_str()).unwrap_or("文件夹")
+                        entry
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("文件夹")
                     )
                 };
 
@@ -215,11 +296,23 @@ impl SettingsView {
                     canvas.draw_rounded_rect(ix, iy, iw, item_h - 8, 8, palette.card_selected_bg);
                     canvas.draw_rounded_border(ix, iy, iw, item_h - 8, 8, palette.accent, 2);
                 } else {
-                    canvas.draw_rounded_rect_alpha(ix, iy, iw, item_h - 8, 8, palette.background, 100);
+                    canvas.draw_rounded_rect_alpha(
+                        ix,
+                        iy,
+                        iw,
+                        item_h - 8,
+                        8,
+                        palette.background,
+                        100,
+                    );
                     canvas.draw_rounded_border(ix, iy, iw, item_h - 8, 8, palette.border, 1);
                 }
 
-                let text_col = if is_selected { palette.accent } else { palette.text_primary };
+                let text_col = if is_selected {
+                    palette.accent
+                } else {
+                    palette.text_primary
+                };
                 canvas.draw_text(&folder_name, ix + 20, iy + 14, 22.0, text_col);
             }
         }

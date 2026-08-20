@@ -27,16 +27,34 @@ impl Canvas {
 
     fn load_default_fonts(&mut self) {
         let candidates = [
-            "assets/fonts/SourceHanSans.ttf",
-            "assets/fonts/SourceHanSerif.ttf",
+            "fonts/default.ttf",
+            "fonts/font.ttf",
             "assets/fonts/default.ttf",
+            "assets/fonts/SourceHanSans.ttf",
+            "package/Apps/BrickReader/fonts/default.ttf",
+            "/mnt/SDCARD/Apps/BrickReader/fonts/default.ttf",
+            "/mnt/SDCARD/Apps/BrickReader/fonts/font.ttf",
+            "/mnt/SDCARD/fonts/default.ttf",
+            // Present on the user's TrimUI SD layout (PortMaster resources)
+            // and licensed for redistribution/use as a CJK fallback.
+            "/mnt/SDCARD/Apps/PortMaster/PortMaster/pylibs/resources/NotoSansSC-Regular.ttf",
+            "/usr/trimui/res/font/SourceHanSansCN-Medium.otf",
+            "/usr/trimui/res/font/SourceHanSans.otf",
+            "/usr/trimui/res/font/NotoSansCJK-Regular.ttc",
+            "/usr/trimui/res/font/font.ttf",
+            "/usr/trimui/res/font/zh.ttf",
+            "/usr/trimui/res/font/en.ttf",
+            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/system/fonts/DroidSansFallback.ttf",
+            "/system/fonts/NotoSansCJK-Regular.ttc",
             "C:/Windows/Fonts/msyh.ttc",
             "C:/Windows/Fonts/simhei.ttf",
             "C:/Windows/Fonts/simsun.ttc",
             "C:/Windows/Fonts/arial.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-            "/mnt/SDCARD/Apps/BrickReader/fonts/default.ttf",
         ];
 
         for path in candidates {
@@ -121,7 +139,17 @@ impl Canvas {
         self.draw_rounded_rect_alpha(x, y, w, h, r, color, 255);
     }
 
-    pub fn draw_rounded_rect_alpha(&mut self, x: i32, y: i32, w: i32, h: i32, r: i32, color: u32, alpha: u8) {
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_rounded_rect_alpha(
+        &mut self,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        r: i32,
+        color: u32,
+        alpha: u8,
+    ) {
         let r = r.min(w / 2).min(h / 2).max(0);
         if r == 0 {
             self.draw_rect_alpha(x, y, w, h, color, alpha);
@@ -160,7 +188,17 @@ impl Canvas {
         }
     }
 
-    pub fn draw_rounded_border(&mut self, x: i32, y: i32, w: i32, h: i32, r: i32, color: u32, thickness: i32) {
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_rounded_border(
+        &mut self,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        r: i32,
+        color: u32,
+        thickness: i32,
+    ) {
         for t in 0..thickness {
             let cur_x = x + t;
             let cur_y = y + t;
@@ -169,9 +207,19 @@ impl Canvas {
             let cur_r = (r - t).max(0);
 
             self.draw_horizontal_line(cur_x + cur_r, cur_x + cur_w - cur_r, cur_y, color);
-            self.draw_horizontal_line(cur_x + cur_r, cur_x + cur_w - cur_r, cur_y + cur_h - 1, color);
+            self.draw_horizontal_line(
+                cur_x + cur_r,
+                cur_x + cur_w - cur_r,
+                cur_y + cur_h - 1,
+                color,
+            );
             self.draw_vertical_line(cur_x, cur_y + cur_r, cur_y + cur_h - cur_r, color);
-            self.draw_vertical_line(cur_x + cur_w - 1, cur_y + cur_r, cur_y + cur_h - cur_r, color);
+            self.draw_vertical_line(
+                cur_x + cur_w - 1,
+                cur_y + cur_r,
+                cur_y + cur_h - cur_r,
+                color,
+            );
         }
     }
 
@@ -212,7 +260,8 @@ impl Canvas {
                     continue;
                 }
                 let glyph_id = scaled_font.glyph_id(ch);
-                let glyph = glyph_id.with_scale_and_position(scale, ab_glyph::point(cursor_x, cursor_y));
+                let glyph =
+                    glyph_id.with_scale_and_position(scale, ab_glyph::point(cursor_x, cursor_y));
 
                 if let Some(outline) = font.outline_glyph(glyph) {
                     let bounds = outline.px_bounds();
@@ -249,6 +298,7 @@ impl Canvas {
     }
 
     /// High quality image rendering with Bilinear filtering, viewport cropping and scaling
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_image(
         &mut self,
         img: &DynamicImage,
@@ -302,13 +352,18 @@ impl Canvas {
             }
             if ch.is_ascii() {
                 let ascii_code = ch as usize;
-                if ascii_code >= 32 && ascii_code < 128 {
+                if (32..128).contains(&ascii_code) {
                     let glyph = BITMAP_FONT_8X16[ascii_code - 32];
-                    for row in 0..16 {
-                        let bits = glyph[row];
+                    for (row, &bits) in glyph.iter().enumerate() {
                         for col in 0..8 {
                             if (bits & (1 << (7 - col))) != 0 {
-                                self.draw_rect(cur_x + col * scale, y + (row as i32) * scale, scale, scale, color);
+                                self.draw_rect(
+                                    cur_x + col * scale,
+                                    y + (row as i32) * scale,
+                                    scale,
+                                    scale,
+                                    color,
+                                );
                             }
                         }
                     }

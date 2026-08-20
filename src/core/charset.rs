@@ -1,5 +1,5 @@
 use chardetng::EncodingDetector;
-use encoding_rs::{Encoding, GBK, UTF_8, UTF_16LE, UTF_16BE};
+use encoding_rs::{Encoding, GBK, UTF_16BE, UTF_16LE, UTF_8};
 
 pub struct CharsetHelper;
 
@@ -44,5 +44,26 @@ impl CharsetHelper {
         // 5. Fallback explicitly to GBK / GB18030 for Chinese web novels
         let (gbk_cow, _, _) = GBK.decode(bytes);
         (gbk_cow.into_owned(), "GBK (Fallback)")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CharsetHelper;
+
+    #[test]
+    fn decodes_utf8_bom_using_real_decoder() {
+        let bytes = b"\xEF\xBB\xBFBrickReader";
+        let (decoded, encoding) = CharsetHelper::decode_bytes(bytes);
+        assert_eq!(decoded, "BrickReader");
+        assert_eq!(encoding, "UTF-8 BOM");
+    }
+
+    #[test]
+    fn decodes_utf16le_bom_using_real_decoder() {
+        let bytes = [0xFF, 0xFE, b'A', 0, 0x16, 0x4E];
+        let (decoded, encoding) = CharsetHelper::decode_bytes(&bytes);
+        assert_eq!(decoded, "A世");
+        assert_eq!(encoding, "UTF-16 LE");
     }
 }

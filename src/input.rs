@@ -1,6 +1,7 @@
+#[cfg(not(target_os = "linux"))]
 use minifb::Key;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HandheldButton {
     DpadUp,
     DpadDown,
@@ -41,11 +42,13 @@ impl InputState {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 pub struct InputManager {
     prev_keys: Vec<Key>,
     held_frames: std::collections::HashMap<Key, u32>,
 }
 
+#[cfg(not(target_os = "linux"))]
 impl InputManager {
     pub fn new() -> Self {
         Self {
@@ -104,8 +107,8 @@ impl InputManager {
 
             Key::J | Key::Space => Some(HandheldButton::ButtonA), // Confirm / Next page
             Key::K | Key::Backspace => Some(HandheldButton::ButtonB), // Back / Cancel
-            Key::U | Key::X => Some(HandheldButton::ButtonX), // Reset zoom / Extra action
-            Key::I | Key::Y => Some(HandheldButton::ButtonY), // Theme / RTL switch
+            Key::U | Key::X => Some(HandheldButton::ButtonX),     // Reset zoom / Extra action
+            Key::I | Key::Y => Some(HandheldButton::ButtonY),     // Theme / RTL switch
 
             Key::Q | Key::PageUp => Some(HandheldButton::L1), // Prev page
             Key::E | Key::PageDown => Some(HandheldButton::R1), // Next page

@@ -1,17 +1,54 @@
+# ==========================================
 # Rust build artifacts
+# ==========================================
 /target/
 **/*.rs.bk
 Cargo.lock.bak
 
-# Sensitive files & Tokens
+# ==========================================
+# Archive & Release packages
+# ==========================================
+*.tar.gz
+*.zip
+*.7z
+*.rar
+package/*.zip
+package/*.tar.gz
+
+# ==========================================
+# Packaged app binaries and runtime data
+# ==========================================
+package/**/bin/*
+!package/**/bin/.gitkeep
+package/**/books/*
+!package/**/books/.gitkeep
+package/**/data/
+package/**/fonts/*.ttf
+package/**/fonts/*.otf
+
+# ==========================================
+# Sensitive files, Tokens & Private configs
+# ==========================================
 git_token.md
+gittoken_private.md
 *token*
+*private*
 *.key
 *.pem
 .env
 .env.*
 
+# ==========================================
+# Runtime cache & Logs
+# ==========================================
+data/
+*.log
+*.tmp
+*.temp
+
+# ==========================================
 # OS & Editor files
+# ==========================================
 .DS_Store
 Thumbs.db
 Desktop.ini
@@ -19,7 +56,4 @@ Desktop.ini
 .vscode/
 *.swp
 *.swo
-
-# Logs and temporary files
-*.log
-*.tmp
+*~

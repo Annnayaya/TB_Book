@@ -1,49 +1,66 @@
-#!/bin/bash
-# 一键为 Trimui Brick (ARM64 Linux) 构建发布包
-set -e
+#!/usr/bin/env bash
+# Build a self-contained ARM64 package for TrimUI Brick stock/TrimUI OS.
+set -euo pipefail
 
-# 自动加载 Rust 环境变量 (如果存在)
-if [ -f "$HOME/.cargo/env" ]; then
-    source "$HOME/.cargo/env"
-fi
+PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+TARGET_TRIPLE="aarch64-unknown-linux-musl"
+PACKAGE_DIR="$PROJECT_DIR/package/Apps/BrickReader"
+OUTPUT_BIN="$PROJECT_DIR/target/$TARGET_TRIPLE/release/brick_reader"
 
-# 检查是否安装了 rustup
-if ! command -v rustup &> /dev/null; then
-    echo "================================================================"
-    echo "  [错误] WSL 环境中尚未安装 Rust 工具链！"
-    echo "  请在 WSL 终端中运行以下命令安装："
-    echo "    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
-    echo "    source \"\$HOME/.cargo/env\""
-    echo "================================================================"
+cd "$PROJECT_DIR"
+
+for required_tool in cargo rustc rustup readelf python3 file sha256sum install; do
+    if ! command -v "$required_tool" >/dev/null 2>&1; then
+        echo "ERROR: required tool not found: $required_tool" >&2
+        exit 1
+    fi
+done
+
+echo "==> [1/5] Installing Rust target: $TARGET_TRIPLE"
+rustup target add "$TARGET_TRIPLE"
+
+RUST_SYSROOT="$(rustc --print sysroot)"
+HOST_TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
+RUST_LLD_PATH="$RUST_SYSROOT/lib/rustlib/$HOST_TRIPLE/bin/rust-lld"
+
+if [ ! -x "$RUST_LLD_PATH" ]; then
+    echo "ERROR: rust-lld not found at $RUST_LLD_PATH" >&2
     exit 1
 fi
 
-# 检查 aarch64 交叉编译器
-if ! command -v aarch64-linux-gnu-gcc &> /dev/null; then
-    echo "==> 正在安装 aarch64 交叉编译工具链..."
-    sudo apt update && sudo apt install -y gcc-aarch64-linux-gnu
+echo "==> [2/5] Running host tests"
+cargo test --all-targets
+
+echo "==> [3/5] Building static ARM64 release binary"
+export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER="$RUST_LLD_PATH"
+cargo build --release --target "$TARGET_TRIPLE"
+
+echo "==> [4/5] Verifying TrimUI-compatible ELF"
+if ! readelf -h "$OUTPUT_BIN" | grep -q 'Machine:.*AArch64'; then
+    echo "ERROR: output is not an AArch64 executable" >&2
+    exit 1
 fi
 
-# 指定交叉编译 C 编译器与链接器环境变量
-export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
-export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+if readelf -l "$OUTPUT_BIN" | grep -q 'INTERP'; then
+    echo "ERROR: output contains a dynamic interpreter" >&2
+    exit 1
+fi
 
-TARGET="aarch64-unknown-linux-gnu"
+if readelf -d "$OUTPUT_BIN" 2>/dev/null | grep -q 'NEEDED'; then
+    echo "ERROR: output still depends on shared libraries" >&2
+    exit 1
+fi
 
-echo "==> [1/3] 正在配置 $TARGET 目标平台..."
-rustup target add $TARGET
+echo "==> [5/5] Assembling package"
+install -d "$PACKAGE_DIR/bin"
+install -m 0755 "$OUTPUT_BIN" "$PACKAGE_DIR/bin/brick_reader"
+chmod 0755 "$PACKAGE_DIR/launch.sh"
 
-echo "==> [2/3] 正在为 Trimui Brick (A133P) 编译 Release 二进制..."
-cargo build --release --target $TARGET
+python3 -m json.tool "$PACKAGE_DIR/config.json" >/dev/null
+sh -n "$PACKAGE_DIR/launch.sh"
 
-echo "==> [3/3] 正在组装掌机安装包..."
-mkdir -p package/Apps/BrickReader/bin
-cp target/$TARGET/release/brick_reader package/Apps/BrickReader/bin/
-chmod +x package/Apps/BrickReader/bin/brick_reader
-chmod +x package/Apps/BrickReader/launch.sh
-
-echo "================================================================"
-echo "  ✓ 构建成功！"
-echo "  可执行文件: package/Apps/BrickReader/bin/brick_reader"
-echo "  安装方式: 将 package/Apps/BrickReader 文件夹复制到 TF 卡的 Apps/ 目录下即可！"
-echo "================================================================"
+echo
+echo "Build complete: $PACKAGE_DIR"
+file "$PACKAGE_DIR/bin/brick_reader"
+sha256sum "$PACKAGE_DIR/bin/brick_reader"
+echo "Copy the BrickReader directory into F:\\Apps, then refresh Apps on the device."

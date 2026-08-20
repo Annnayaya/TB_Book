@@ -1,4 +1,5 @@
 use crate::core::comic_engine::{ComicArchive, ReadingDirection};
+use crate::platform::battery::BatteryStatus;
 use crate::ui::canvas::{Canvas, SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::ui::theme::ThemePalette;
 use crate::ui::widgets::Widgets;
@@ -16,7 +17,13 @@ impl ComicView {
         }
     }
 
-    pub fn render(&self, canvas: &mut Canvas, comic: &ComicArchive, palette: &ThemePalette) {
+    pub fn render(
+        &self,
+        canvas: &mut Canvas,
+        comic: &ComicArchive,
+        palette: &ThemePalette,
+        battery: Option<BatteryStatus>,
+    ) {
         canvas.clear(palette.background);
 
         let sw = SCREEN_WIDTH as f32;
@@ -83,9 +90,20 @@ impl ComicView {
             ReadingDirection::RightToLeft => "日漫 [RTL]",
             ReadingDirection::LeftToRight => "国漫 [LTR]",
         };
-        let crop_str = if comic.auto_crop { " | 切白边开启" } else { "" };
-        let header_title = format!("{} (第 {}/{} 页)  [{}{}]", comic.title, cur_page + 1, total_pages, dir_str, crop_str);
-        Widgets::draw_header(canvas, &header_title, palette);
+        let crop_str = if comic.auto_crop {
+            " | 切白边开启"
+        } else {
+            ""
+        };
+        let header_title = format!(
+            "{} (第 {}/{} 页)  [{}{}]",
+            comic.title,
+            cur_page + 1,
+            total_pages,
+            dir_str,
+            crop_str
+        );
+        Widgets::draw_header(canvas, &header_title, palette, battery);
 
         // Subdued Bottom Status Bar
         let percent = if total_pages > 0 {
@@ -94,9 +112,12 @@ impl ComicView {
             0.0
         };
         let zoom_info = if comic.zoom_level > 1.0 {
-            format!("🔍 缩放: {:.1}x | [十字键] 漫游移动 | [X] 还原全屏", comic.zoom_level)
+            format!(
+                "🔍 缩放: {:.1}x | [十字键] 漫游移动 | [X] 还原全屏",
+                comic.zoom_level
+            )
         } else {
-            format!("🔍 1.0x 全屏 | [R2/L2] 缩放 | [L1/R1] 翻页")
+            "🔍 1.0x 全屏 | [R2/L2] 缩放 | [L1/R1] 翻页".to_string()
         };
         let prog_text = format!("{}/{} ({:.0}%)", cur_page + 1, total_pages, percent * 100.0);
         Widgets::draw_footer_status(canvas, &zoom_info, &prog_text, percent, palette);

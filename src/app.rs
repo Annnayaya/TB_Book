@@ -1,9 +1,9 @@
 use crate::config::AppSettings;
-use crate::core::charset::CharsetHelper;
 use crate::core::comic_engine::{ComicArchive, ReadingDirection, ZoomMode};
 use crate::core::library::{BookMetadata, BookType, LibraryDatabase};
 use crate::core::text_engine::TextBook;
 use crate::input::{HandheldButton, InputState};
+use crate::platform::battery::{read_battery_status, BatteryStatus};
 use crate::platform::led::LedController;
 use crate::platform::rumble::RumbleController;
 use crate::ui::canvas::{Canvas, SCREEN_HEIGHT, SCREEN_WIDTH};
@@ -12,7 +12,6 @@ use crate::ui::settings_view::{SettingsTab, SettingsView};
 use crate::ui::shelf_view::ShelfView;
 use crate::ui::text_view::TextView;
 use crate::ui::widgets::Widgets;
-use std::fs;
 
 pub enum AppScreen {
     Shelf,
@@ -38,6 +37,9 @@ pub struct App {
 
     pub toast_message: Option<String>,
     pub toast_timer: f32,
+    pub battery_status: Option<BatteryStatus>,
+    pub battery_refresh_timer: f32,
+    pub should_exit: bool,
 }
 
 impl App {
@@ -46,6 +48,12 @@ impl App {
         let settings = AppSettings::load();
         let library = LibraryDatabase::load();
         let settings_view = SettingsView::new(&settings.library_path);
+
+        let battery_status = read_battery_status();
+        match battery_status {
+            Some(status) => println!("battery={}%, charging={}", status.percent, status.charging),
+            None => println!("battery=unavailable (indicator hidden)"),
+        }
 
         let mut app = Self {
             screen: AppScreen::Shelf,
@@ -61,6 +69,9 @@ impl App {
             comic_book: None,
             toast_message: None,
             toast_timer: 0.0,
+            battery_status,
+            battery_refresh_timer: 10.0,
+            should_exit: false,
         };
 
         app.refresh_books();
@@ -116,13 +127,22 @@ impl App {
 
         match self.settings.theme {
             crate::ui::theme::ThemeMode::PaperSepia => LedController::set_rgb(180, 110, 50),
-            crate::ui::theme::ThemeMode::OledDark => LedController::set_rgb(20, 40, 100),
+            crate::ui::theme::ThemeMode::RicePaper => LedController::set_rgb(110, 120, 70),
             crate::ui::theme::ThemeMode::BambooSage => LedController::set_rgb(40, 120, 60),
+            crate::ui::theme::ThemeMode::ForestNight => LedController::set_rgb(25, 75, 40),
+            crate::ui::theme::ThemeMode::AmberNight => LedController::set_rgb(145, 80, 25),
+            crate::ui::theme::ThemeMode::OledDark => LedController::set_rgb(20, 40, 100),
             crate::ui::theme::ThemeMode::MangaPureDark => LedController::turn_off(),
         }
     }
 
     pub fn update(&mut self, input: &InputState, dt: f32) {
+        self.battery_refresh_timer -= dt;
+        if self.battery_refresh_timer <= 0.0 {
+            self.battery_status = read_battery_status();
+            self.battery_refresh_timer = 10.0;
+        }
+
         if self.toast_timer > 0.0 {
             self.toast_timer -= dt;
             if self.toast_timer <= 0.0 {
@@ -166,7 +186,8 @@ impl App {
             }
         } else if input.is_pressed(HandheldButton::ButtonA) {
             self.open_selected_book();
-        } else if input.is_pressed(HandheldButton::Menu) || input.is_pressed(HandheldButton::Select) {
+        } else if input.is_pressed(HandheldButton::Menu) || input.is_pressed(HandheldButton::Select)
+        {
             self.settings_view.tab = SettingsTab::General;
             self.settings_view.browse_path = self.settings.library_path.clone();
             self.settings_view.refresh_folder_entries();
@@ -180,6 +201,10 @@ impl App {
         } else if input.is_pressed(HandheldButton::FnKey) {
             self.refresh_books();
             self.show_toast("已刷新书架文件");
+        } else if input.is_pressed(HandheldButton::ButtonB)
+            || (input.is_pressed(HandheldButton::Start) && input.is_pressed(HandheldButton::Select))
+        {
+            self.should_exit = true;
         }
     }
 
@@ -188,10 +213,14 @@ impl App {
             SettingsTab::General => {
                 let max_items = 7;
                 if input.is_pressed(HandheldButton::DpadDown) {
-                    self.settings_view.selected_index = (self.settings_view.selected_index + 1) % max_items;
+                    self.settings_view.selected_index =
+                        (self.settings_view.selected_index + 1) % max_items;
                 } else if input.is_pressed(HandheldButton::DpadUp) {
-                    self.settings_view.selected_index = (self.settings_view.selected_index + max_items - 1) % max_items;
-                } else if input.is_pressed(HandheldButton::DpadLeft) || input.is_pressed(HandheldButton::L2) {
+                    self.settings_view.selected_index =
+                        (self.settings_view.selected_index + max_items - 1) % max_items;
+                } else if input.is_pressed(HandheldButton::DpadLeft)
+                    || input.is_pressed(HandheldButton::L2)
+                {
                     match self.settings_view.selected_index {
                         1 => {
                             // Font size -2
@@ -200,21 +229,23 @@ impl App {
                         }
                         2 => {
                             // Line spacing -0.1
-                            self.settings.line_spacing = (self.settings.line_spacing - 0.1).max(1.1);
+                            self.settings.line_spacing =
+                                (self.settings.line_spacing - 0.1).max(1.1);
                             self.settings.save();
                         }
                         3 => {
                             // Theme prev
-                            self.settings.theme = self.settings.theme.next();
+                            self.settings.theme = self.settings.theme.previous();
                             self.settings.save();
                             self.update_rgb_led();
                         }
                         4 => {
                             // Manga direction
-                            self.settings.default_reading_direction = match self.settings.default_reading_direction {
-                                ReadingDirection::RightToLeft => ReadingDirection::LeftToRight,
-                                ReadingDirection::LeftToRight => ReadingDirection::RightToLeft,
-                            };
+                            self.settings.default_reading_direction =
+                                match self.settings.default_reading_direction {
+                                    ReadingDirection::RightToLeft => ReadingDirection::LeftToRight,
+                                    ReadingDirection::LeftToRight => ReadingDirection::RightToLeft,
+                                };
                             self.settings.save();
                         }
                         5 => {
@@ -225,7 +256,9 @@ impl App {
                         }
                         _ => {}
                     }
-                } else if input.is_pressed(HandheldButton::DpadRight) || input.is_pressed(HandheldButton::R2) {
+                } else if input.is_pressed(HandheldButton::DpadRight)
+                    || input.is_pressed(HandheldButton::R2)
+                {
                     match self.settings_view.selected_index {
                         1 => {
                             // Font size +2
@@ -234,7 +267,8 @@ impl App {
                         }
                         2 => {
                             // Line spacing +0.1
-                            self.settings.line_spacing = (self.settings.line_spacing + 0.1).min(2.2);
+                            self.settings.line_spacing =
+                                (self.settings.line_spacing + 0.1).min(2.2);
                             self.settings.save();
                         }
                         3 => {
@@ -245,10 +279,11 @@ impl App {
                         }
                         4 => {
                             // Manga direction
-                            self.settings.default_reading_direction = match self.settings.default_reading_direction {
-                                ReadingDirection::RightToLeft => ReadingDirection::LeftToRight,
-                                ReadingDirection::LeftToRight => ReadingDirection::RightToLeft,
-                            };
+                            self.settings.default_reading_direction =
+                                match self.settings.default_reading_direction {
+                                    ReadingDirection::RightToLeft => ReadingDirection::LeftToRight,
+                                    ReadingDirection::LeftToRight => ReadingDirection::RightToLeft,
+                                };
                             self.settings.save();
                         }
                         5 => {
@@ -295,12 +330,16 @@ impl App {
                 } else if input.is_pressed(HandheldButton::ButtonA) {
                     // Enter folder
                     if self.settings_view.folder_selected_index < count {
-                        let selected_path = self.settings_view.folder_entries[self.settings_view.folder_selected_index].clone();
+                        let selected_path = self.settings_view.folder_entries
+                            [self.settings_view.folder_selected_index]
+                            .clone();
                         self.settings_view.browse_path = selected_path;
                         self.settings_view.folder_selected_index = 0;
                         self.settings_view.refresh_folder_entries();
                     }
-                } else if input.is_pressed(HandheldButton::ButtonX) || input.is_pressed(HandheldButton::Start) {
+                } else if input.is_pressed(HandheldButton::ButtonX)
+                    || input.is_pressed(HandheldButton::Start)
+                {
                     // Choose current browse path as library path!
                     let chosen = self.settings_view.browse_path.clone();
                     self.settings.set_library_path(&chosen);
@@ -323,40 +362,52 @@ impl App {
         let meta = self.books[self.shelf_view.selected_index].clone();
         match meta.book_type {
             BookType::Text => {
-                if let Ok(bytes) = fs::read(&meta.path) {
-                    let (content, enc_name) = CharsetHelper::decode_bytes(&bytes);
-                    let mut book = TextBook::from_string(meta.title.clone(), content, enc_name.to_string());
-                    book.settings.font_size = self.settings.font_size;
-                    book.settings.line_spacing = self.settings.line_spacing;
-                    book.settings.margin_x = self.settings.margin_x;
-                    book.settings.margin_y = self.settings.margin_y;
+                let is_epub = meta
+                    .path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("epub"));
 
-                    book.repaginate(&self.canvas);
-                    book.jump_to_page(meta.current_page);
+                let mut settings = crate::core::text_engine::TypographySettings::default();
+                settings.font_size = self.settings.font_size;
+                settings.line_spacing = self.settings.line_spacing;
+                settings.margin_x = self.settings.margin_x;
+                settings.margin_y = self.settings.margin_y;
 
-                    self.text_book = Some(book);
-                    self.screen = AppScreen::ReadingText;
-                    RumbleController::pulse(20);
-                    self.show_toast(format!("正在阅读: {}", meta.title));
-                } else {
-                    self.show_toast("无法打开文本文件");
-                }
-            }
-            BookType::Comic => {
-                match ComicArchive::open(&meta.path) {
-                    Ok(mut comic) => {
-                        comic.reading_direction = self.settings.default_reading_direction;
-                        comic.jump_page(meta.current_page);
-                        self.comic_book = Some(comic);
-                        self.screen = AppScreen::ReadingComic;
+                match TextBook::open(&meta.path, meta.title.clone(), settings, &self.canvas) {
+                    Ok(mut book) => {
+                        if is_epub {
+                            book.jump_percent(meta.percent, &self.canvas);
+                        } else {
+                            book.jump_to_global_page(meta.current_page, &self.canvas);
+                        }
+
+                        self.comic_book = None;
+                        self.text_book = Some(book);
+                        self.text_view.show_menu = false;
+                        self.text_view.show_chapter_list = false;
+                        self.screen = AppScreen::ReadingText;
                         RumbleController::pulse(20);
-                        self.show_toast(format!("漫画已就绪: {}", meta.title));
+                        self.show_toast(format!("正在阅读: {}", meta.title));
                     }
-                    Err(e) => {
-                        self.show_toast(format!("漫画解析失败: {}", e));
-                    }
+                    Err(error) => self.show_toast(error),
                 }
             }
+            BookType::Comic => match ComicArchive::open(&meta.path) {
+                Ok(mut comic) => {
+                    comic.reading_direction = self.settings.default_reading_direction;
+                    comic.jump_page(meta.current_page);
+                    self.text_book = None;
+                    self.comic_book = Some(comic);
+                    self.comic_view.show_menu = false;
+                    self.screen = AppScreen::ReadingComic;
+                    RumbleController::pulse(20);
+                    self.show_toast(format!("漫画已就绪: {}", meta.title));
+                }
+                Err(e) => {
+                    self.show_toast(format!("漫画解析失败: {}", e));
+                }
+            },
             BookType::Unknown => {
                 self.show_toast("不支持的文件格式");
             }
@@ -364,6 +415,69 @@ impl App {
     }
 
     fn handle_text_input(&mut self, input: &InputState) {
+        if self.text_view.show_chapter_list {
+            let chapter_count = self
+                .text_book
+                .as_ref()
+                .map(|book| book.chapters().len())
+                .unwrap_or(0);
+
+            if input.is_pressed(HandheldButton::DpadDown) && chapter_count > 0 {
+                self.text_view.chapter_selection =
+                    (self.text_view.chapter_selection + 1) % chapter_count;
+            } else if input.is_pressed(HandheldButton::DpadUp) && chapter_count > 0 {
+                self.text_view.chapter_selection =
+                    (self.text_view.chapter_selection + chapter_count - 1) % chapter_count;
+            } else if (input.is_pressed(HandheldButton::DpadRight)
+                || input.is_pressed(HandheldButton::R1))
+                && chapter_count > 0
+            {
+                self.text_view.chapter_selection =
+                    (self.text_view.chapter_selection + 9).min(chapter_count - 1);
+            } else if input.is_pressed(HandheldButton::DpadLeft)
+                || input.is_pressed(HandheldButton::L1)
+            {
+                self.text_view.chapter_selection =
+                    self.text_view.chapter_selection.saturating_sub(9);
+            } else if input.is_pressed(HandheldButton::ButtonA) {
+                let selection = self.text_view.chapter_selection;
+                let (jumped, title) = if let Some(book) = &mut self.text_book {
+                    let title = book
+                        .chapters()
+                        .get(selection)
+                        .map(|c| c.title.clone())
+                        .unwrap_or_default();
+                    (book.jump_to_chapter(selection, &self.canvas), title)
+                } else {
+                    (false, String::new())
+                };
+
+                if jumped {
+                    self.text_view.show_chapter_list = false;
+                    RumbleController::pulse(20);
+                    self.save_current_progress();
+                    self.show_toast(format!("已跳转: {}", title));
+                } else {
+                    self.show_toast("当前书籍未识别到章节");
+                }
+            } else if input.is_pressed(HandheldButton::ButtonB)
+                || input.is_pressed(HandheldButton::Select)
+                || input.is_pressed(HandheldButton::Start)
+                || input.is_pressed(HandheldButton::Menu)
+            {
+                self.text_view.show_chapter_list = false;
+            }
+            return;
+        }
+
+        if input.is_pressed(HandheldButton::Select) || input.is_pressed(HandheldButton::Start) {
+            if let Some(book) = &self.text_book {
+                self.text_view.open_chapter_list(book);
+                RumbleController::pulse(12);
+            }
+            return;
+        }
+
         if input.is_pressed(HandheldButton::Menu) {
             self.text_view.show_menu = !self.text_view.show_menu;
             return;
@@ -376,6 +490,47 @@ impl App {
                 self.text_view.menu_selection = (self.text_view.menu_selection + 3) % 4;
             } else if input.is_pressed(HandheldButton::ButtonB) {
                 self.text_view.show_menu = false;
+                self.save_current_progress();
+                self.screen = AppScreen::Shelf;
+                self.refresh_books();
+            } else if input.is_pressed(HandheldButton::ButtonA) {
+                match self.text_view.menu_selection {
+                    0 => {
+                        if let Some(book) = &mut self.text_book {
+                            let progress = if book.total_pages() > 1 {
+                                book.current_page() as f32 / (book.total_pages() - 1) as f32
+                            } else {
+                                0.0
+                            };
+                            book.settings.font_size = (book.settings.font_size + 2.0).min(48.0);
+                            self.settings.font_size = book.settings.font_size;
+                            self.settings.save();
+                            book.rebuild_cache_and_repaginate(&self.canvas);
+                            book.jump_percent(progress, &self.canvas);
+                            let font_size = book.settings.font_size;
+                            self.save_current_progress();
+                            self.show_toast(format!("字号: {:.0}px", font_size));
+                        }
+                    }
+                    1 => {
+                        self.settings.theme = self.settings.theme.next();
+                        self.settings.save();
+                        self.update_rgb_led();
+                        self.show_toast(format!("主题: {}", self.settings.theme.name()));
+                    }
+                    2 => {
+                        if let Some(book) = &self.text_book {
+                            self.text_view.open_chapter_list(book);
+                        }
+                    }
+                    3 => {
+                        self.text_view.show_menu = false;
+                        self.save_current_progress();
+                        self.screen = AppScreen::Shelf;
+                        self.refresh_books();
+                    }
+                    _ => {}
+                }
             } else if input.is_pressed(HandheldButton::ButtonY) {
                 self.settings.theme = self.settings.theme.next();
                 self.settings.save();
@@ -395,23 +550,37 @@ impl App {
                 || input.is_pressed(HandheldButton::DpadRight)
                 || input.is_pressed(HandheldButton::DpadDown)
             {
-                page_changed = book.next_page();
+                page_changed = book.next_page(&self.canvas);
             } else if input.is_pressed(HandheldButton::L1)
                 || input.is_pressed(HandheldButton::DpadLeft)
                 || input.is_pressed(HandheldButton::DpadUp)
             {
-                page_changed = book.prev_page();
+                page_changed = book.prev_page(&self.canvas);
             } else if input.is_pressed(HandheldButton::R2) {
+                let progress = if book.total_pages() > 1 {
+                    book.current_page() as f32 / (book.total_pages() - 1) as f32
+                } else {
+                    0.0
+                };
                 book.settings.font_size = (book.settings.font_size + 2.0).min(48.0);
                 self.settings.font_size = book.settings.font_size;
                 self.settings.save();
-                book.repaginate(&self.canvas);
+                book.rebuild_cache_and_repaginate(&self.canvas);
+                book.jump_percent(progress, &self.canvas);
+                page_changed = true;
                 toast_msg = Some(format!("字号: {:.0}px", book.settings.font_size));
             } else if input.is_pressed(HandheldButton::L2) {
+                let progress = if book.total_pages() > 1 {
+                    book.current_page() as f32 / (book.total_pages() - 1) as f32
+                } else {
+                    0.0
+                };
                 book.settings.font_size = (book.settings.font_size - 2.0).max(18.0);
                 self.settings.font_size = book.settings.font_size;
                 self.settings.save();
-                book.repaginate(&self.canvas);
+                book.rebuild_cache_and_repaginate(&self.canvas);
+                book.jump_percent(progress, &self.canvas);
+                page_changed = true;
                 toast_msg = Some(format!("字号: {:.0}px", book.settings.font_size));
             } else if input.is_pressed(HandheldButton::ButtonB) {
                 exit_to_shelf = true;
@@ -504,7 +673,11 @@ impl App {
                 toast_msg = Some(format!("切换为: {}", dir_name));
             } else if input.is_pressed(HandheldButton::FnKey) {
                 comic.toggle_auto_crop();
-                let status = if comic.auto_crop { "已开启" } else { "已关闭" };
+                let status = if comic.auto_crop {
+                    "已开启"
+                } else {
+                    "已关闭"
+                };
                 toast_msg = Some(format!("智能切白边: {}", status));
             } else if input.is_pressed(HandheldButton::ButtonB) {
                 if comic.zoom_level > 1.05 {
@@ -518,20 +691,30 @@ impl App {
                 let is_zoomed = comic.zoom_level > 1.05;
                 if is_zoomed {
                     let pan_speed = 35.0;
-                    if input.is_pressed(HandheldButton::DpadRight) || input.is_held(HandheldButton::DpadRight) {
+                    if input.is_pressed(HandheldButton::DpadRight)
+                        || input.is_held(HandheldButton::DpadRight)
+                    {
                         comic.pan(pan_speed, 0.0, sw, sh);
                     }
-                    if input.is_pressed(HandheldButton::DpadLeft) || input.is_held(HandheldButton::DpadLeft) {
+                    if input.is_pressed(HandheldButton::DpadLeft)
+                        || input.is_held(HandheldButton::DpadLeft)
+                    {
                         comic.pan(-pan_speed, 0.0, sw, sh);
                     }
-                    if input.is_pressed(HandheldButton::DpadDown) || input.is_held(HandheldButton::DpadDown) {
+                    if input.is_pressed(HandheldButton::DpadDown)
+                        || input.is_held(HandheldButton::DpadDown)
+                    {
                         comic.pan(0.0, pan_speed, sw, sh);
                     }
-                    if input.is_pressed(HandheldButton::DpadUp) || input.is_held(HandheldButton::DpadUp) {
+                    if input.is_pressed(HandheldButton::DpadUp)
+                        || input.is_held(HandheldButton::DpadUp)
+                    {
                         comic.pan(0.0, -pan_speed, sw, sh);
                     }
 
-                    if input.is_pressed(HandheldButton::R1) || input.is_pressed(HandheldButton::ButtonA) {
+                    if input.is_pressed(HandheldButton::R1)
+                        || input.is_pressed(HandheldButton::ButtonA)
+                    {
                         page_changed = comic.next_page();
                     } else if input.is_pressed(HandheldButton::L1) {
                         page_changed = comic.prev_page();
@@ -580,12 +763,18 @@ impl App {
         if let Some(book) = &self.text_book {
             if self.shelf_view.selected_index < self.books.len() {
                 let path = self.books[self.shelf_view.selected_index].path.clone();
-                self.library.update_progress(&path, book.current_page, book.pages.len(), 1.0);
+                self.library
+                    .update_progress(&path, book.current_page(), book.total_pages(), 1.0);
             }
         } else if let Some(comic) = &self.comic_book {
             if self.shelf_view.selected_index < self.books.len() {
                 let path = self.books[self.shelf_view.selected_index].path.clone();
-                self.library.update_progress(&path, comic.current_page, comic.page_entries.len(), comic.zoom_level);
+                self.library.update_progress(
+                    &path,
+                    comic.current_page,
+                    comic.page_entries.len(),
+                    comic.zoom_level,
+                );
             }
         }
     }
@@ -594,19 +783,32 @@ impl App {
         let palette = self.settings.theme.palette();
 
         match self.screen {
-            AppScreen::Shelf => self.shelf_view.render(&mut self.canvas, &self.books, &self.settings.library_path, &palette),
+            AppScreen::Shelf => self.shelf_view.render(
+                &mut self.canvas,
+                &self.books,
+                &self.settings.library_path,
+                &palette,
+                self.battery_status,
+            ),
             AppScreen::ReadingText => {
                 if let Some(book) = &self.text_book {
-                    self.text_view.render(&mut self.canvas, book, &palette);
+                    self.text_view
+                        .render(&mut self.canvas, book, &palette, self.battery_status);
                 }
             }
             AppScreen::ReadingComic => {
                 if let Some(comic) = &self.comic_book {
-                    self.comic_view.render(&mut self.canvas, comic, &palette);
+                    self.comic_view
+                        .render(&mut self.canvas, comic, &palette, self.battery_status);
                 }
             }
             AppScreen::Settings => {
-                self.settings_view.render(&mut self.canvas, &self.settings, &palette);
+                self.settings_view.render(
+                    &mut self.canvas,
+                    &self.settings,
+                    &palette,
+                    self.battery_status,
+                );
             }
         }
 

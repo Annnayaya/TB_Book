@@ -53,18 +53,20 @@ impl LibraryDatabase {
         }
     }
 
-    pub fn update_progress(&mut self, path: &Path, current_page: usize, total_pages: usize, zoom: f32) {
+    pub fn update_progress(
+        &mut self,
+        path: &Path,
+        current_page: usize,
+        total_pages: usize,
+        zoom: f32,
+    ) {
         let key = path.to_string_lossy().to_string();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        let percent = if total_pages > 0 {
-            (current_page as f32) / (total_pages as f32)
-        } else {
-            0.0
-        };
+        let percent = progress_fraction(current_page, total_pages);
 
         if let Some(meta) = self.history.get_mut(&key) {
             meta.current_page = current_page;
@@ -73,7 +75,11 @@ impl LibraryDatabase {
             meta.zoom_level = zoom;
             meta.last_read_timestamp = now;
         } else {
-            let title = path.file_stem().and_then(|s| s.to_str()).unwrap_or("未知").to_string();
+            let title = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("未知")
+                .to_string();
             let book_type = Self::detect_type(path);
             let file_size_bytes = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
@@ -108,7 +114,11 @@ impl LibraryDatabase {
                 if path.is_file() {
                     let book_type = Self::detect_type(&path);
                     if book_type != BookType::Unknown {
-                        let title = path.file_stem().and_then(|s| s.to_str()).unwrap_or("未知").to_string();
+                        let title = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("未知")
+                            .to_string();
                         let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
 
                         results.push(BookMetadata {
@@ -132,11 +142,58 @@ impl LibraryDatabase {
     }
 
     pub fn detect_type(path: &Path) -> BookType {
-        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase();
         match ext.as_str() {
             "txt" | "md" | "epub" => BookType::Text,
             "cbz" | "zip" => BookType::Comic,
             _ => BookType::Unknown,
         }
+    }
+}
+
+fn progress_fraction(current_page: usize, total_pages: usize) -> f32 {
+    if total_pages == 0 {
+        0.0
+    } else {
+        ((current_page.saturating_add(1) as f32) / total_pages as f32).clamp(0.0, 1.0)
+    }
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::progress_fraction;
+
+    #[test]
+    fn reading_progress_reaches_one_hundred_percent_on_last_page() {
+        assert_eq!(progress_fraction(0, 0), 0.0);
+        assert!((progress_fraction(0, 10) - 0.1).abs() < f32::EPSILON);
+        assert_eq!(progress_fraction(9, 10), 1.0);
+        assert_eq!(progress_fraction(99, 10), 1.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BookType, LibraryDatabase};
+    use std::path::Path;
+
+    #[test]
+    fn detects_supported_file_types_using_production_code() {
+        assert_eq!(
+            LibraryDatabase::detect_type(Path::new("novel.txt")),
+            BookType::Text
+        );
+        assert_eq!(
+            LibraryDatabase::detect_type(Path::new("manga.cbz")),
+            BookType::Comic
+        );
+        assert_eq!(
+            LibraryDatabase::detect_type(Path::new("cover.png")),
+            BookType::Unknown
+        );
     }
 }
